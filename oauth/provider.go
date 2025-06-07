@@ -10,23 +10,11 @@ import (
 	"golang.org/x/oauth2"
 )
 
-// Provider defines the methods needed for an OAuth flow.
 type Provider interface {
-	// Provider's name
 	Name() string
-
-	// Callback handler path
 	CallbackHandlerPath() string
-
-	// GetAuthCodeURL generates the URL for the user to authorize the application.
-	// It also returns the PKCE verifier to be used later.
 	GetAuthCodeURL(state string) (authURL string)
-
-	// ExchangeCodeForToken exchanges the authorization code for an OAuth2 token.
-	// It requires the code received in the callback and the PKCE verifier.
 	ExchangeCodeForToken(ctx context.Context, code string) (*oauth2.Token, error)
-
-	// GetUserInfo fetches user information using the provided OAuth2 token.
 	GetUserInfo(ctx context.Context, token *oauth2.Token) (userInfo []byte, err error)
 }
 
@@ -40,15 +28,22 @@ func NewProvider(
 	redirectUrl string,
 	scopes ...string,
 ) (Provider, error) {
-	u, err := url.Parse(redirectUrl)
-	if err != nil {
-		return nil, fmt.Errorf("invalid redirect url: %v", err)
+	urls := []string{
+		userInfoUrl,
+		authUrl,
+		tokenUrl,
+		redirectUrl,
 	}
-	callbackHandlerPath := u.Path
+	for _, u := range urls {
+		_, err := url.ParseRequestURI(u)
+		if err != nil {
+			return nil, err
+		}
+	}
 
-	return &baseProvider{
+	return &BaseProvider{
 		name: name,
-		config: &oauth2.Config{
+		flow: &oauth2.Config{
 			ClientID:     clientId,
 			ClientSecret: clientSecret,
 			Scopes:       scopes,
@@ -58,40 +53,40 @@ func NewProvider(
 				TokenURL: tokenUrl,
 			},
 		},
-		callbackHandlerPath: callbackHandlerPath,
+		callbackHandlerPath: redirectUrl,
 		userInfoUrl:         userInfoUrl,
 	}, nil
 }
 
-type baseProvider struct {
+type BaseProvider struct {
 	name                string
-	config              *oauth2.Config
+	flow                *oauth2.Config
 	callbackHandlerPath string
 	userInfoUrl         string
 }
 
-func (p *baseProvider) Name() string {
+func (p *BaseProvider) Name() string {
 	return p.name
 }
 
-func (p *baseProvider) CallbackHandlerPath() string {
+func (p *BaseProvider) CallbackHandlerPath() string {
 	return p.callbackHandlerPath
 }
 
-func (p *baseProvider) GetAuthCodeURL(state string) (authURL string) {
-	return p.config.AuthCodeURL(state, oauth2.AccessTypeOffline)
+func (p *BaseProvider) GetAuthCodeURL(state string) (authURL string) {
+	return p.flow.AuthCodeURL(state, oauth2.AccessTypeOffline)
 }
 
-func (p *baseProvider) ExchangeCodeForToken(ctx context.Context, code string) (*oauth2.Token, error) {
-	tok, err := p.config.Exchange(ctx, code)
+func (p *BaseProvider) ExchangeCodeForToken(ctx context.Context, code string) (*oauth2.Token, error) {
+	tok, err := p.flow.Exchange(ctx, code)
 	if err != nil {
 		return nil, fmt.Errorf("unable to exchange code for token: %w", err)
 	}
 	return tok, nil
 }
 
-func (p *baseProvider) GetUserInfo(ctx context.Context, token *oauth2.Token) ([]byte, error) {
-	client := p.config.Client(ctx, token)
+func (p *BaseProvider) GetUserInfo(ctx context.Context, token *oauth2.Token) ([]byte, error) {
+	client := p.flow.Client(ctx, token)
 	res, err := client.Get(p.userInfoUrl)
 	if err != nil {
 		return nil, fmt.Errorf("unable to get user info: %w", err)
