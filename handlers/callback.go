@@ -5,26 +5,29 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
-	"time"
 
+	"github.com/joaovictorsl/aegis/config"
 	"github.com/joaovictorsl/aegis/oauth"
 	"github.com/joaovictorsl/aegis/token"
+	"github.com/joaovictorsl/aegis/util"
 )
 
 func CallbackHandler(
 	p oauth.Provider,
+	log *log.Logger,
+	cfg config.AegisConfig,
 	jwtManager token.JWTManager,
 	tokenRepository token.Repository,
 	createUserFn func(ctx context.Context, u oauth.ProviderUser) (string, error),
-) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(context.Background(), cfg.HandlerTimeout)
 		defer cancel()
 
 		code := r.URL.Query().Get("code")
 		receivedState := r.URL.Query().Get("state")
 
-		stateCookie, err := r.Cookie(state_cookie)
+		stateCookie, err := r.Cookie(cfg.StateCookie.Name)
 		if err != nil {
 			http.Error(w, "State cookie not found", http.StatusBadRequest)
 			log.Printf("State cookie not found: %v", err)
@@ -37,17 +40,7 @@ func CallbackHandler(
 			log.Printf("State mismatch. Received: %q, Stored: %q", receivedState, storedState)
 			return
 		}
-
-		// Deleting the state cookie
-		http.SetCookie(w, &http.Cookie{
-			Name:     state_cookie,
-			Value:    "",
-			Path:     p.CallbackHandlerPath(),
-			Expires:  time.Unix(0, 0),
-			HttpOnly: true,
-			Secure:   false, // TODO: set to true once using https
-			SameSite: http.SameSiteLaxMode,
-		})
+		util.DeleteCookie(w, cfg.StateCookie)
 
 		tok, err := p.ExchangeCodeForToken(ctx, code)
 		if err != nil {
@@ -86,7 +79,7 @@ func CallbackHandler(
 		}
 		refreshTok, err := jwtManager.GenerateRefreshToken(userId)
 		if err != nil {
-			http.Error(w, "Failed to refresh token", http.StatusInternalServerError)
+			http.Error(w, "Failed to create refresh token", http.StatusInternalServerError)
 			log.Printf("Failed to create refresh token: %v", err)
 			return
 		}
@@ -98,19 +91,8 @@ func CallbackHandler(
 			return
 		}
 
-		log.Println(accessTok)
-		log.Println(refreshTok)
-		log.Println(string(raw))
-		http.SetCookie(w, &http.Cookie{
-			Name:     "token",
-			Value:    accessTok,
-			Path:     "/",
-			Domain:   "",
-			Expires:  time.Date(2025, time.May, 5, 16, 0, 0, 0, time.Local),
-			Secure:   false,
-			HttpOnly: true,
-			SameSite: http.SameSiteLaxMode,
-		})
+		util.SetCookie(w, cfg.AccessTokenCookie, accessTok)
+		util.SetCookie(w, cfg.RefreshTokenCookie, refreshTok)
 		w.WriteHeader(http.StatusOK)
-	})
+	}
 }

@@ -6,9 +6,10 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"time"
 
+	"github.com/joaovictorsl/aegis/config"
 	"github.com/joaovictorsl/aegis/oauth"
+	"github.com/joaovictorsl/aegis/util"
 )
 
 func generateRandomString(nBytes int) (string, error) {
@@ -20,8 +21,12 @@ func generateRandomString(nBytes int) (string, error) {
 	return base64.URLEncoding.EncodeToString(b), nil
 }
 
-func LoginHandler(p oauth.Provider) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+func LoginHandler(
+	p oauth.Provider,
+	log *log.Logger,
+	cfg config.AegisConfig,
+) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		state, err := generateRandomString(32)
 		if err != nil {
 			http.Error(w, "Error generating state", http.StatusInternalServerError)
@@ -29,17 +34,9 @@ func LoginHandler(p oauth.Provider) http.Handler {
 			return
 		}
 
-		http.SetCookie(w, &http.Cookie{
-			Name:     state_cookie,
-			Value:    state,
-			Path:     p.CallbackHandlerPath(),
-			Expires:  time.Now().Add(5 * time.Minute),
-			HttpOnly: true,
-			Secure:   false, // TODO: set to true once using https
-			SameSite: http.SameSiteLaxMode,
-		})
+		util.SetCookie(w, cfg.StateCookie, state)
 
 		authURL := p.GetAuthCodeURL(state)
 		http.Redirect(w, r, authURL, http.StatusTemporaryRedirect)
-	})
+	}
 }
