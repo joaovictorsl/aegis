@@ -6,18 +6,19 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/joaovictorsl/aegis/config"
 	"github.com/joaovictorsl/aegis/token"
 )
 
-type Middleware func(http.Handler) http.Handler
+type Middleware func(http.HandlerFunc) http.HandlerFunc
 
-func RequireAuthMiddleware(jwtManager token.JWTManager) Middleware {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+func RequireAuthMiddleware(cfg config.AegisConfig, jwtManager token.JWTManager) Middleware {
+	return func(next http.HandlerFunc) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
 			var tok string
-			c, err := r.Cookie("token")
+			c, err := r.Cookie(cfg.AccessTokenCookie.Name)
 			if err != nil {
-				authHeader := r.Header.Get("Authorization")
+				authHeader := r.Header.Get(cfg.AccessTokenHeaderKey)
 				if authHeader == "" {
 					http.Error(w, "No access token provided", http.StatusUnauthorized)
 					return
@@ -45,7 +46,7 @@ func RequireAuthMiddleware(jwtManager token.JWTManager) Middleware {
 			r = r.WithContext(ctx)
 
 			next.ServeHTTP(w, r)
-		})
+		}
 	}
 }
 

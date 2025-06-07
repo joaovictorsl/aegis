@@ -2,8 +2,10 @@ package aegis
 
 import (
 	"context"
+	"log"
 	"net/http"
 
+	"github.com/joaovictorsl/aegis/config"
 	"github.com/joaovictorsl/aegis/handlers"
 	"github.com/joaovictorsl/aegis/oauth"
 	"github.com/joaovictorsl/aegis/token"
@@ -11,29 +13,44 @@ import (
 )
 
 type Aegis struct {
+	cfg             config.AegisConfig
+	log             *log.Logger
 	jwtManager      token.JWTManager
-	createUserFn    func(ctx context.Context, u oauth.ProviderUser) (string, error)
 	tokenRepository token.Repository
+	createUserFn    func(ctx context.Context, u oauth.ProviderUser) (string, error)
 }
 
 func New(
+	cfg config.AegisConfig,
+	log *log.Logger,
 	jwtManager token.JWTManager,
-	createUserFn func(ctx context.Context, u oauth.ProviderUser) (string, error),
 	tokenRepository token.Repository,
+	createUserFn func(ctx context.Context, u oauth.ProviderUser) (string, error),
 ) *Aegis {
 	return &Aegis{
+		cfg:             cfg,
+		log:             log,
 		jwtManager:      jwtManager,
-		createUserFn:    createUserFn,
 		tokenRepository: tokenRepository,
+		createUserFn:    createUserFn,
 	}
 }
 
-type Handlers struct {
-	Login    http.Handler
-	Callback http.Handler
+func (a *Aegis) RefreshHandler() http.HandlerFunc {
+	return handlers.RefreshHandler(
+		a.log,
+		a.cfg,
+		a.jwtManager,
+		a.tokenRepository,
+	)
 }
 
-func (a *Aegis) NewGoogleHandlers(clientId, clientSecret, redirectUrl string) (Handlers, error) {
+type Handlers struct {
+	Login    http.HandlerFunc
+	Callback http.HandlerFunc
+}
+
+func (a *Aegis) GoogleHandlers(clientId, clientSecret, redirectUrl string) (Handlers, error) {
 	p, err := oauth.NewProvider(
 		"google",
 		"https://www.googleapis.com/oauth2/v2/userinfo",
@@ -50,12 +67,23 @@ func (a *Aegis) NewGoogleHandlers(clientId, clientSecret, redirectUrl string) (H
 	}
 
 	return Handlers{
-		Login:    handlers.LoginHandler(p),
-		Callback: handlers.CallbackHandler(p, a.jwtManager, a.tokenRepository, a.createUserFn),
+		Login: handlers.LoginHandler(
+			p,
+			a.log,
+			a.cfg,
+		),
+		Callback: handlers.CallbackHandler(
+			p,
+			a.log,
+			a.cfg,
+			a.jwtManager,
+			a.tokenRepository,
+			a.createUserFn,
+		),
 	}, nil
 }
 
-func (a *Aegis) NewSpotifyHandlers(clientId, clientSecret, redirectUrl string) (Handlers, error) {
+func (a *Aegis) SpotifyHandlers(clientId, clientSecret, redirectUrl string) (Handlers, error) {
 	p, err := oauth.NewProvider(
 		"spotify",
 		"https://api.spotify.com/v1/me",
@@ -71,7 +99,18 @@ func (a *Aegis) NewSpotifyHandlers(clientId, clientSecret, redirectUrl string) (
 	}
 
 	return Handlers{
-		Login:    handlers.LoginHandler(p),
-		Callback: handlers.CallbackHandler(p, a.jwtManager, a.tokenRepository, a.createUserFn),
+		Login: handlers.LoginHandler(
+			p,
+			a.log,
+			a.cfg,
+		),
+		Callback: handlers.CallbackHandler(
+			p,
+			a.log,
+			a.cfg,
+			a.jwtManager,
+			a.tokenRepository,
+			a.createUserFn,
+		),
 	}, nil
 }
