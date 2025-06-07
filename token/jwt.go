@@ -1,6 +1,7 @@
 package token
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -16,33 +17,43 @@ type JWTManager interface {
 	GenerateAccessToken(userId string) (string, error)
 	GenerateRefreshToken(userId string) (string, error)
 	ValidateToken(tokenString string) (*Claims, error)
+	GetAccessTokenExp() time.Duration
+	GetRefreshTokenExp() time.Duration
 }
 
 func NewJWTManager(issuer, secretKey string, accessTokenExp, refreshTokenExp time.Duration) JWTManager {
-	return &JWTManagerImpl{
+	return &jwtManagerImpl{
 		issuer:          issuer,
 		secretKey:       []byte(secretKey),
-		AccessTokenExp:  accessTokenExp,
-		RefreshTokenExp: refreshTokenExp,
+		accessTokenExp:  accessTokenExp,
+		refreshTokenExp: refreshTokenExp,
 	}
 }
 
-type JWTManagerImpl struct {
+type jwtManagerImpl struct {
 	issuer          string
 	secretKey       []byte
-	AccessTokenExp  time.Duration
-	RefreshTokenExp time.Duration
+	accessTokenExp  time.Duration
+	refreshTokenExp time.Duration
 }
 
-func (manager *JWTManagerImpl) GenerateAccessToken(userId string) (string, error) {
-	return manager.generateToken(userId, manager.AccessTokenExp)
+func (manager *jwtManagerImpl) GetAccessTokenExp() time.Duration {
+	return manager.accessTokenExp
 }
 
-func (manager *JWTManagerImpl) GenerateRefreshToken(userId string) (string, error) {
-	return manager.generateToken(userId, manager.RefreshTokenExp)
+func (manager *jwtManagerImpl) GetRefreshTokenExp() time.Duration {
+	return manager.refreshTokenExp
 }
 
-func (manager *JWTManagerImpl) generateToken(userId string, exp time.Duration) (string, error) {
+func (manager *jwtManagerImpl) GenerateAccessToken(userId string) (string, error) {
+	return manager.generateToken(userId, manager.accessTokenExp)
+}
+
+func (manager *jwtManagerImpl) GenerateRefreshToken(userId string) (string, error) {
+	return manager.generateToken(userId, manager.refreshTokenExp)
+}
+
+func (manager *jwtManagerImpl) generateToken(userId string, exp time.Duration) (string, error) {
 	now := time.Now()
 	claims := Claims{
 		UserId: userId,
@@ -64,7 +75,7 @@ func (manager *JWTManagerImpl) generateToken(userId string, exp time.Duration) (
 	return tokenString, nil
 }
 
-func (manager *JWTManagerImpl) ValidateToken(tokenString string) (*Claims, error) {
+func (manager *jwtManagerImpl) ValidateToken(tokenString string) (*Claims, error) {
 	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (any, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
@@ -72,10 +83,10 @@ func (manager *JWTManagerImpl) ValidateToken(tokenString string) (*Claims, error
 		return manager.secretKey, nil
 	})
 	if err != nil {
-		if err == jwt.ErrSignatureInvalid {
+		if errors.Is(err, jwt.ErrSignatureInvalid) {
 			return nil, fmt.Errorf("invalid token signature")
 		}
-		if err == jwt.ErrTokenExpired {
+		if errors.Is(err, jwt.ErrTokenExpired) {
 			return nil, fmt.Errorf("token is expired")
 		}
 		return nil, fmt.Errorf("failed to parse token: %w", err)
